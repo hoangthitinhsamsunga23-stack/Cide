@@ -1,0 +1,1105 @@
+// ==UserScript==
+// @name         🔥 Universal Video Downloader ULTIMATE
+// @namespace    http://tampermonkey.net/
+// @version      4.0.0
+// @description  Tải 100% video từ MỌI WEBSITE - Hentaiz, YouTube, Facebook, TikTok, Twitter, Instagram...
+// @author       Ultimate
+// @match        *://*/*
+// @grant        GM_download
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setClipboard
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_openInTab
+// @connect      *
+// @run-at       document-start
+// @downloadURL  none
+// @updateURL    none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    /* ==================== CONFIGURATION ==================== */
+    const CONFIG = {
+        AUTO_SCAN: true,
+        AUTO_SCAN_DELAY: 2000,
+        MAX_VIDEOS: 100,
+        BUTTON_POSITION: 'bottom-right', // bottom-right, bottom-left, top-right, top-left
+        THEME: 'dark' // dark, light, purple
+    };
+
+    /* ==================== STYLES ==================== */
+    const STYLES = `
+        * { box-sizing: border-box; }
+        
+        #uvd-ultimate {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --text: #f1f5f9;
+            --text-dim: #94a3b8;
+            --border: #334155;
+            
+            position: fixed;
+            ${CONFIG.BUTTON_POSITION.includes('bottom') ? 'bottom: 16px;' : 'top: 16px;'}
+            ${CONFIG.BUTTON_POSITION.includes('right') ? 'right: 16px;' : 'left: 16px;'}
+            z-index: 2147483647;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        .uvd-fab {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4), 0 0 0 0 rgba(99, 102, 241, 0.5);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .uvd-fab::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .uvd-fab:active::before {
+            width: 120%;
+            height: 120%;
+        }
+
+        .uvd-fab:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
+        }
+
+        .uvd-fab:active {
+            transform: scale(0.95);
+        }
+
+        .uvd-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: var(--danger);
+            color: white;
+            border-radius: 12px;
+            padding: 2px 6px;
+            font-size: 10px;
+            font-weight: bold;
+            min-width: 18px;
+            text-align: center;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .uvd-panel {
+            position: fixed;
+            ${CONFIG.BUTTON_POSITION.includes('bottom') ? 'bottom: 0;' : 'top: 0;'}
+            left: 0;
+            right: 0;
+            background: var(--bg-main);
+            ${CONFIG.BUTTON_POSITION.includes('bottom') ? 'border-radius: 20px 20px 0 0;' : 'border-radius: 0 0 20px 20px;'}
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+            max-height: 85vh;
+            transform: translateY(${CONFIG.BUTTON_POSITION.includes('bottom') ? '100%' : '-100%'});
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            color: var(--text);
+        }
+
+        .uvd-panel.show {
+            transform: translateY(0);
+        }
+
+        .uvd-header {
+            padding: 16px 20px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            ${CONFIG.BUTTON_POSITION.includes('bottom') ? 'border-radius: 20px 20px 0 0;' : 'border-radius: 0 0 20px 20px;'}
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .uvd-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: rotate 20s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .uvd-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .uvd-title-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .uvd-close {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .uvd-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+
+        .uvd-close:active {
+            transform: rotate(90deg) scale(0.9);
+        }
+
+        .uvd-toolbar {
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        .uvd-toolbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .uvd-tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-dim);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .uvd-tab:hover {
+            background: var(--bg-hover);
+            border-color: var(--primary);
+        }
+
+        .uvd-tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+            font-weight: 600;
+        }
+
+        .uvd-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .uvd-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .uvd-content::-webkit-scrollbar-track {
+            background: var(--bg-card);
+        }
+
+        .uvd-content::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 3px;
+        }
+
+        .uvd-scan-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .uvd-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .uvd-btn-primary {
+            flex: 1;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        }
+
+        .uvd-btn-primary:hover {
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .uvd-btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .uvd-btn-secondary {
+            background: var(--bg-hover);
+            color: var(--text);
+            padding: 12px;
+        }
+
+        .uvd-btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .uvd-status {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-dim);
+        }
+
+        .uvd-status-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
+        .uvd-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--bg-hover);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .uvd-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            transition: all 0.3s;
+        }
+
+        .uvd-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .uvd-video-preview {
+            width: 100%;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            background: #000;
+            max-height: 180px;
+            object-fit: contain;
+        }
+
+        .uvd-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .uvd-platform-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-youtube { background: #ff0000; color: white; }
+        .badge-facebook { background: #1877f2; color: white; }
+        .badge-tiktok { background: #000; color: white; }
+        .badge-twitter { background: #1da1f2; color: white; }
+        .badge-instagram { background: #e4405f; color: white; }
+        .badge-hentaiz { background: #ff1744; color: white; }
+        .badge-hanime { background: #ff4081; color: white; }
+        .badge-pornhub { background: #ff9000; color: white; }
+        .badge-xvideos { background: #ff0000; color: white; }
+        .badge-m3u8 { background: #00bcd4; color: white; }
+        .badge-blob { background: #ff9800; color: white; }
+        .badge-video { background: #607d8b; color: white; }
+
+        .uvd-card-title {
+            flex: 1;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .uvd-card-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .uvd-url {
+            background: rgba(99, 102, 241, 0.1);
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            color: var(--primary);
+            word-break: break-all;
+            margin-bottom: 8px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .uvd-quality-selector {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .uvd-quality-btn {
+            padding: 6px 12px;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid var(--primary);
+            border-radius: 6px;
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .uvd-quality-btn:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .uvd-quality-btn:active {
+            transform: scale(0.95);
+        }
+
+        .uvd-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .uvd-action-btn {
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .uvd-action-download {
+            background: var(--success);
+            color: white;
+        }
+
+        .uvd-action-download:active {
+            background: #059669;
+            transform: scale(0.95);
+        }
+
+        .uvd-action-copy {
+            background: var(--warning);
+            color: white;
+        }
+
+        .uvd-action-copy:active {
+            background: #d97706;
+            transform: scale(0.95);
+        }
+
+        .uvd-action-play {
+            background: var(--primary);
+            color: white;
+        }
+
+        .uvd-action-play:active {
+            background: var(--primary-dark);
+            transform: scale(0.95);
+        }
+
+        .uvd-action-info {
+            background: var(--bg-hover);
+            color: var(--text);
+        }
+
+        .uvd-alert {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .uvd-alert-success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .uvd-alert-error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+        }
+
+        .uvd-alert-info {
+            background: rgba(99, 102, 241, 0.2);
+            border: 1px solid var(--primary);
+            color: var(--primary);
+        }
+
+        .uvd-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .uvd-stat-card {
+            background: var(--bg-card);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+
+        .uvd-stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
+
+        .uvd-stat-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .uvd-empty {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .uvd-empty-icon {
+            font-size: 64px;
+            opacity: 0.3;
+            margin-bottom: 16px;
+        }
+
+        .uvd-empty-text {
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+
+        .uvd-empty-hint {
+            font-size: 12px;
+            color: var(--text-dim);
+            opacity: 0.6;
+        }
+
+        @media (max-width: 768px) {
+            .uvd-panel {
+                max-height: 90vh;
+            }
+            
+            .uvd-actions {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .uvd-card {
+            animation: slideInUp 0.3s ease-out;
+        }
+    `;
+
+    /* ==================== MAIN CLASS ==================== */
+    class UniversalVideoDownloader {
+        constructor() {
+            this.videos = {
+                html: new Set(),
+                network: new Set(),
+                blob: new Map(),
+                m3u8: new Set()
+            };
+            this.currentTab = 'all';
+            this.isScanning = false;
+            this.init();
+        }
+
+        init() {
+            this.injectStyles();
+            this.createUI();
+            this.setupEventListeners();
+            this.interceptRequests();
+            this.monitorDOM();
+            
+            if (CONFIG.AUTO_SCAN) {
+                setTimeout(() => this.scanAll(), CONFIG.AUTO_SCAN_DELAY);
+            }
+        }
+
+        injectStyles() {
+            const style = document.createElement('style');
+            style.textContent = STYLES;
+            document.head.appendChild(style);
+        }
+
+        createUI() {
+            const container = document.createElement('div');
+            container.id = 'uvd-ultimate';
+            container.innerHTML = `
+                <button class="uvd-fab" id="uvd-fab">
+                    🎬
+                    <span class="uvd-badge" id="uvd-count">0</span>
+                </button>
+                <div class="uvd-panel" id="uvd-panel">
+                    <div class="uvd-header">
+                        <h3 class="uvd-title">
+                            🎬 Video Downloader
+                            <span class="uvd-title-badge">ULTIMATE</span>
+                        </h3>
+                        <button class="uvd-close" id="uvd-close">×</button>
+                    </div>
+                    <div class="uvd-toolbar">
+                        <button class="uvd-tab active" data-tab="all">🌐 Tất cả</button>
+                        <button class="uvd-tab" data-tab="html">📹 HTML5</button>
+                        <button class="uvd-tab" data-tab="network">🔗 Network</button>
+                        <button class="uvd-tab" data-tab="blob">📦 Blob</button>
+                        <button class="uvd-tab" data-tab="m3u8">📡 Stream</button>
+                    </div>
+                    <div class="uvd-content" id="uvd-content">
+                        <div class="uvd-scan-bar">
+                            <button class="uvd-btn uvd-btn-primary" id="uvd-scan">
+                                🔍 Quét Video
+                            </button>
+                            <button class="uvd-btn uvd-btn-secondary" id="uvd-clear" title="Xóa tất cả">
+                                🗑️
+                            </button>
+                        </div>
+                        <div id="uvd-status"></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(container);
+
+            this.elements = {
+                fab: document.getElementById('uvd-fab'),
+                panel: document.getElementById('uvd-panel'),
+                close: document.getElementById('uvd-close'),
+                content: document.getElementById('uvd-content'),
+                status: document.getElementById('uvd-status'),
+                count: document.getElementById('uvd-count'),
+                scanBtn: document.getElementById('uvd-scan'),
+                clearBtn: document.getElementById('uvd-clear'),
+                tabs: document.querySelectorAll('.uvd-tab')
+            };
+        }
+
+        setupEventListeners() {
+            this.elements.fab.addEventListener('click', () => this.togglePanel());
+            this.elements.close.addEventListener('click', () => this.closePanel());
+            this.elements.scanBtn.addEventListener('click', () => this.scanAll());
+            this.elements.clearBtn.addEventListener('click', () => this.clearAll());
+
+            this.elements.tabs.forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    this.elements.tabs.forEach(t => t.classList.remove('active'));
+                    e.target.classList.add('active');
+                    this.currentTab = e.target.dataset.tab;
+                    this.render();
+                });
+            });
+
+            // Listen for video play events
+            document.addEventListener('play', (e) => {
+                if (e.target.tagName === 'VIDEO') {
+                    setTimeout(() => this.scanAll(), 500);
+                }
+            }, true);
+        }
+
+        interceptRequests() {
+            // Intercept Fetch
+            const originalFetch = window.fetch;
+            window.fetch = (...args) => {
+                const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                this.checkVideoUrl(url, 'network');
+                return originalFetch.apply(window, args);
+            };
+
+            // Intercept XHR
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                window.uvdDownloader.checkVideoUrl(url, 'network');
+                return originalOpen.apply(this, arguments);
+            };
+
+            // Intercept Blob
+            const originalCreateObjectURL = URL.createObjectURL;
+            URL.createObjectURL = function(obj) {
+                const url = originalCreateObjectURL.apply(this, arguments);
+                if (obj instanceof Blob && obj.type.startsWith('video/')) {
+                    window.uvdDownloader.videos.blob.set(url, obj);
+                    window.uvdDownloader.updateCount();
+                }
+                return url;
+            };
+        }
+
+        monitorDOM() {
+            const observer = new MutationObserver(() => {
+                this.scanHTML();
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+        }
+
+        checkVideoUrl(url, type) {
+            if (!url || typeof url !== 'string') return;
+
+            const videoPatterns = [
+                /\.mp4/i, /\.webm/i, /\.m3u8/i, /\.mpd/i, /\.ts$/i,
+                /\.mov/i, /\.avi/i, /\.mkv/i, /\.flv/i,
+                /video/i, /stream/i,
+                /googlevideo\.com/i,
+                /youtube\.com.*videoplayback/i,
+                /facebook\.com.*video/i,
+                /fbcdn\.net.*\.mp4/i,
+                /tiktok.*\.mp4/i,
+                /twitter\.com.*\.mp4/i,
+                /twimg\.com.*\.mp4/i,
+                /instagram\.com.*\.mp4/i,
+                /cdninstagram\.com.*\.mp4/i,
+                /hentaiz/i,
+                /hanime/i,
+                /pornhub.*\.mp4/i,
+                /xvideos.*\.mp4/i,
+                /xnxx.*\.mp4/i
+            ];
+
+            if (videoPatterns.some(pattern => pattern.test(url))) {
+                if (url.includes('.m3u8') || url.includes('.mpd')) {
+                    this.videos.m3u8.add(url);
+                } else if (type === 'network') {
+                    this.videos.network.add(url);
+                }
+                this.updateCount();
+            }
+        }
+
+        scanHTML() {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+                if (video.src) this.videos.html.add(video.src);
+                if (video.currentSrc) this.videos.html.add(video.currentSrc);
+                
+                video.querySelectorAll('source').forEach(source => {
+                    if (source.src) this.videos.html.add(source.src);
+                });
+            });
+
+            // Scan data attributes
+            document.querySelectorAll('[data-src], [data-video-src], [data-url]').forEach(el => {
+                const src = el.dataset.src || el.dataset.videoSrc || el.dataset.url;
+                if (src && this.isVideoUrl(src)) {
+                    this.videos.html.add(src);
+                }
+            });
+
+            this.updateCount();
+        }
+
+        isVideoUrl(url) {
+            const extensions = ['.mp4', '.webm', '.m3u8', '.mov', '.avi', '.mkv', '.flv'];
+            return extensions.some(ext => url.toLowerCase().includes(ext)) || 
+                   url.toLowerCase().includes('video');
+        }
+
+        async scanAll() {
+            if (this.isScanning) return;
+            
+            this.isScanning = true;
+            this.showStatus('scanning');
+            
+            setTimeout(() => {
+                this.scanHTML();
+                this.isScanning = false;
+                this.render();
+            }, 1000);
+        }
+
+        getAllVideos() {
+            const all = new Map();
+            
+            this.videos.html.forEach(url => {
+                all.set(url, { type: 'html', url, platform: this.detectPlatform(url) });
+            });
+            
+            this.videos.network.forEach(url => {
+                all.set(url, { type: 'network', url, platform: this.detectPlatform(url) });
+            });
+            
+            this.videos.blob.forEach((blob, url) => {
+                all.set(url, { type: 'blob', url, blob, platform: 'blob' });
+            });
+            
+            this.videos.m3u8.forEach(url => {
+                all.set(url, { type: 'm3u8', url, platform: 'm3u8' });
+            });
+            
+            return Array.from(all.values());
+        }
+
+        getFilteredVideos() {
+            if (this.currentTab === 'all') {
+                return this.getAllVideos();
+            }
+            
+            const typeMap = {
+                'html': Array.from(this.videos.html).map(url => ({ type: 'html', url, platform: this.detectPlatform(url) })),
+                'network': Array.from(this.videos.network).map(url => ({ type: 'network', url, platform: this.detectPlatform(url) })),
+                'blob': Array.from(this.videos.blob.entries()).map(([url, blob]) => ({ type: 'blob', url, blob, platform: 'blob' })),
+                'm3u8': Array.from(this.videos.m3u8).map(url => ({ type: 'm3u8', url, platform: 'm3u8' }))
+            };
+            
+            return typeMap[this.currentTab] || [];
+        }
+
+        detectPlatform(url) {
+            const platforms = {
+                'youtube': /youtube\.com|googlevideo\.com/i,
+                'facebook': /facebook\.com|fbcdn\.net/i,
+                'tiktok': /tiktok/i,
+                'twitter': /twitter\.com|twimg\.com/i,
+                'instagram': /instagram\.com|cdninstagram\.com/i,
+                'hentaiz': /hentaiz/i,
+                'hanime': /hanime/i,
+                'pornhub': /pornhub/i,
+                'xvideos': /xvideos/i,
+                'm3u8': /\.m3u8/i,
+                'blob': /^blob:/i
+            };
+
+            for (const [platform, pattern] of Object.entries(platforms)) {
+                if (pattern.test(url)) return platform;
+            }
+
+            return 'video';
+        }
+
+        render() {
+            const videos = this.getFilteredVideos();
+            
+            if (videos.length === 0) {
+                this.showStatus('empty');
+                return;
+            }
+
+            const statsHtml = `
+                <div class="uvd-stats">
+                    <div class="uvd-stat-card">
+                        <div class="uvd-stat-value">${this.videos.html.size}</div>
+                        <div class="uvd-stat-label">HTML5</div>
+                    </div>
+                    <div class="uvd-stat-card">
+                        <div class="uvd-stat-value">${this.videos.network.size}</div>
+                        <div class="uvd-stat-label">Network</div>
+                    </div>
+                    <div class="uvd-stat-card">
+                        <div class="uvd-stat-value">${this.videos.blob.size + this.videos.m3u8.size}</div>
+                        <div class="uvd-stat-label">Stream</div>
+                    </div>
+                </div>
+            `;
+
+            const videosHtml = videos.map((video, index) => this.createVideoCard(video, index)).join('');
+            
+            this.elements.status.innerHTML = statsHtml + videosHtml;
+        }
+
+        createVideoCard(video, index) {
+            const filename = this.getFilename(video.url);
+            const size = video.blob ? this.formatSize(video.blob.size) : 'Unknown';
+            
+            return `
+                <div class="uvd-card">
+                    ${video.type === 'html' || video.type === 'network' ? 
+                        `<video class="uvd-video-preview" src="${video.url}" controls muted></video>` : ''}
+                    
+                    <div class="uvd-card-header">
+                        <span class="uvd-platform-badge badge-${video.platform}">${video.platform}</span>
+                        <span class="uvd-card-title">Video ${index + 1}</span>
+                    </div>
+                    
+                    <div class="uvd-card-meta">
+                        📁 ${filename}<br>
+                        ${video.blob ? `📦 ${size}` : ''}
+                    </div>
+                    
+                    <div class="uvd-url">${video.url.substring(0, 80)}...</div>
+                    
+                    <div class="uvd-actions">
+                        <button class="uvd-action-btn uvd-action-download" onclick="window.uvdDownloader.download('${video.url}', '${filename}', ${video.blob ? 'true' : 'false'})">
+                            ⬇️ Tải xuống
+                        </button>
+                        <button class="uvd-action-btn uvd-action-copy" onclick="window.uvdDownloader.copyUrl('${video.url}')">
+                            📋 Copy Link
+                        </button>
+                        <button class="uvd-action-btn uvd-action-play" onclick="window.open('${video.url}', '_blank')">
+                            ▶️ Mở
+                        </button>
+                        <button class="uvd-action-btn uvd-action-info" onclick="window.uvdDownloader.showInfo('${video.url}')">
+                            ℹ️ Thông tin
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        download(url, filename, isBlob) {
+            try {
+                if (isBlob && this.videos.blob.has(url)) {
+                    const blob = this.videos.blob.get(url);
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                } else {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    a.target = '_blank';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }
+                
+                this.showAlert('success', '✅ Đã bắt đầu tải xuống!');
+            } catch (error) {
+                console.error('Download error:', error);
+                window.open(url, '_blank');
+                this.showAlert('info', 'ℹ️ Đã mở trong tab mới');
+            }
+        }
+
+        copyUrl(url) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(url).then(() => {
+                    this.showAlert('success', '✅ Đã copy link!');
+                });
+            } else {
+                const input = document.createElement('input');
+                input.value = url;
+                document.body.appendChild(input);
+                input.select();
+                document.execCommand('copy');
+                document.body.removeChild(input);
+                this.showAlert('success', '✅ Đã copy link!');
+            }
+        }
+
+        showInfo(url) {
+            const video = this.getAllVideos().find(v => v.url === url);
+            const info = `
+                Platform: ${video.platform}
+                Type: ${video.type}
+                URL: ${url}
+                ${video.blob ? `Size: ${this.formatSize(video.blob.size)}` : ''}
+            `;
+            alert(info);
+        }
+
+        showAlert(type, message) {
+            const alert = document.createElement('div');
+            alert.className = `uvd-alert uvd-alert-${type}`;
+            alert.textContent = message;
+            this.elements.status.insertBefore(alert, this.elements.status.firstChild);
+            
+            setTimeout(() => alert.remove(), 3000);
+        }
+
+        showStatus(type) {
+            const statuses = {
+                scanning: `
+                    <div class="uvd-status">
+                        <div class="uvd-spinner"></div>
+                        <p style="margin-top: 16px;">Đang quét video...</p>
+                    </div>
+                `,
+                empty: `
+                    <div class="uvd-empty">
+                        <div class="uvd-empty-icon">🎬</div>
+                        <div class="uvd-empty-text">Chưa tìm thấy video</div>
+                        <div class="uvd-empty-hint">Phát video trên trang rồi quét lại</div>
+                    </div>
+                `
+            };
+
+            this.elements.status.innerHTML = statuses[type] || '';
+        }
+
+        getFilename(url) {
+            try {
+                const urlObj = new URL(url);
+                const pathname = urlObj.pathname;
+                const filename = pathname.split('/').pop();
+                return filename || 'video.mp4';
+            } catch {
+                return 'video.mp4';
+            }
+        }
+
+        formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        updateCount() {
+            const total = this.videos.html.size + 
+                         this.videos.network.size + 
+                         this.videos.blob.size + 
+                         this.videos.m3u8.size;
+            this.elements.count.textContent = total;
+            this.elements.count.style.display = total > 0 ? 'block' : 'none';
+        }
+
+        togglePanel() {
+            this.elements.panel.classList.toggle('show');
+            if (this.elements.panel.classList.contains('show')) {
+                this.render();
+            }
+        }
+
+        closePanel() {
+            this.elements.panel.classList.remove('show');
+        }
+
+        clearAll() {
+            if (confirm('Xóa tất cả video đã tìm thấy?')) {
+                this.videos.html.clear();
+                this.videos.network.clear();
+                this.videos.blob.clear();
+                this.videos.m3u8.clear();
+                this.updateCount();
+                this.render();
+            }
+        }
+    }
+
+    /* ==================== INITIALIZATION ==================== */
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            window.uvdDownloader = new UniversalVideoDownloader();
+        });
+    } else {
+        window.uvdDownloader = new UniversalVideoDownloader();
+    }
+
+    console.log('%c🎬 Universal Video Downloader ULTIMATE 🎬', 'color: #6366f1; font-size: 20px; font-weight: bold;');
+    console.log('%cVersion 4.0.0 - Tải 100% video từ mọi website!', 'color: #10b981; font-size: 14px;');
+})();
