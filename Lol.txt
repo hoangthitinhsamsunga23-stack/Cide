@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         🔥 Video Hunter Pro - Tải Mọi Video
+// @name         🔥 Video Hunter Pro - M3U8 to MP4 Converter
 // @namespace    http://tampermonkey.net/
-// @version      5.0
-// @description  Bắt và tải video từ mọi trang (Hentaiz, Facebook, TikTok...) - Sửa lỗi tải Cross-Origin
+// @version      6.0
+// @description  Bắt video, tự động chuyển M3U8 sang MP4, tải mọi video từ mọi trang
 // @author       HunterPro
 // @match        *://*/*
+// @require      https://cdn.jsdelivr.net/npm/hls.js@latest
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
@@ -12,11 +13,10 @@
 (function() {
     'use strict';
 
-    // Cấu hình
     let videoSources = new Set();
     let isPanelOpen = false;
 
-    // 1. INTERCEPT NETWORK (Chạy ngay từ document-start để không lỡ request nào)
+    // 1. INTERCEPT NETWORK (Bắt link từ lúc trang web vừa tải)
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
@@ -31,42 +31,124 @@
     };
 
     function checkAndAddUrl(url) {
-        if (!url || typeof url !== 'string') return;
-        try {
-            // Lọc các link có đuôi video hoặc chứa từ khóa video/stream
-            if (/\.(mp4|webm|ogg|mov|m3u8|mpd|flv)/i.test(url) || 
-                /(video|stream|videoplayback|cdn.*\.mp4)/i.test(url)) {
-                if (!url.startsWith('blob:')) {
-                    videoSources.add(url);
-                    updateBadge();
-                }
-            }
-        } catch(e) {}
+        if (!url || typeof url !== 'string' || url.startsWith('blob:')) return;
+        if (/\.(mp4|webm|ogg|mov|m3u8|mpd|flv)/i.test(url) || /(video|stream|videoplayback)/i.test(url)) {
+            videoSources.add(url);
+            updateBadge();
+        }
     }
 
-    // 2. SCANNED HTML5 VIDEOS
+    // 2. SCAN DOM VIDEOS
     function scanDOMVideos() {
         document.querySelectorAll('video').forEach(v => {
             if (v.src && !v.src.startsWith('blob:')) videoSources.add(v.src);
             if (v.currentSrc && !v.currentSrc.startsWith('blob:')) videoSources.add(v.currentSrc);
-            v.querySelectorAll('source').forEach(s => {
-                if (s.src) videoSources.add(s.src);
-            });
+            v.querySelectorAll('source').forEach(s => { if (s.src) videoSources.add(s.src); });
         });
-
-        // Quét thêm trong iframe (nếu cùng origin)
-        try {
-            document.querySelectorAll('iframe').forEach(iframe => {
-                try {
-                    iframe.contentWindow.document.querySelectorAll('video source').forEach(s => {
-                        if (s.src) videoSources.add(s.src);
-                    });
-                } catch(e) {} // Bỏ qua lỗi Cross-Origin
-            });
-        } catch(e) {}
     }
 
-    // 3. TẠO GIAO DIỆN (Mobile UI)
+    // 3. M3U8 TO MP4 CONVERTER (Tải các đoạn .ts và ghép lại)
+    async function convertM3U8ToMP4(m3u8Url, btnElement) {
+        btnElement.innerText = "⏳ Đang đọc M3U8...";
+        btnElement.style.background = "#6366f1";
+
+        try {
+            const response = await fetch(m3u8Url);
+            const text = await response.text();
+            const lines = text.split('\n');
+            const tsUrls = [];
+            let baseUrl = m3u8Url.substring(0, m3u8Url.lastIndexOf('/') + 1);
+
+            for (let line of lines) {
+                line = line.trim();
+                if (!line.startsWith('#') && line.length > 0) {
+                    tsUrls.push(line.startsWith('http') ? line : baseUrl + line);
+                }
+            }
+
+            if (tsUrls.length === 0) {
+                throw new Error("Không tìm thấy file .ts trong playlist!");
+            }
+
+            const blobs = [];
+            for (let i = 0; i < tsUrls.length; i++) {
+                btnElement.innerText = `⏳ Tải đoạn ${i + 1}/${tsUrls.length}`;
+                const tsResp = await fetch(tsUrls[i]);
+                const blob = await tsResp.blob();
+                blobs.push(blob);
+            }
+
+            btnElement.innerText = "📦 Đang ghép video...";
+            const finalBlob = new Blob(blobs, { type: 'video/mp4' });
+            const blobUrl = URL.createObjectURL(finalBlob);
+
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `video_converted_${Date.now()}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+
+            btnElement.innerText = "✅ Tải Xong!";
+            btnElement.style.background = "#10b981";
+
+        } catch (e) {
+            console.error("Lỗi chuyển đổi M3U8:", e);
+            btnElement.innerText = "❌ Lỗi CORS";
+            btnElement.style.background = "#ef4444";
+            alert("⚠️ Trình duyệt chặn tải do CORS.\nHãy bấm 'Open Link' hoặc 'Copy Link' rồi dán vào IDM / 1DM / XDM để tải!");
+        }
+    }
+
+    // 4. FORCE DOWNLOAD MP4 DIRECT
+    async function forceDownload(url, filename, btnElement) {
+        btnElement.innerText = "⏳ Đang xử lý...";
+        btnElement.style.opacity = "0.7";
+        try {
+            const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
+            if (!response.ok) throw new Error('Network error');
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+            btnElement.innerText = "✅ Xong!";
+            btnElement.style.background = "#059669";
+        } catch (e) {
+            btnElement.innerText = "⚠️ Bấm Open Link";
+            btnElement.style.background = "#ef4444";
+            alert("Trình duyệt chặn tải trực tiếp. Hãy bấm 'Open Link' để mở video, sau đó Chuột phải -> Save Video As!");
+        }
+    }
+
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            alert("✅ Đã sao chép link video!\nDán vào IDM, 1DM hoặc MX Player để tải/xem.");
+        }).catch(() => {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            alert("✅ Đã sao chép link video!");
+        });
+    }
+
+    function getFileName(url) {
+        try {
+            let path = new URL(url).pathname;
+            let name = path.split('/').pop();
+            return name.includes('.') ? name : 'video.mp4';
+        } catch(e) { return 'video.mp4'; }
+    }
+
+    // 5. GIAO DIỆN (MOBILE UI)
     function createUI() {
         if (document.getElementById('vh-container')) return;
 
@@ -75,22 +157,27 @@
             #vh-container { position: fixed; bottom: 20px; right: 16px; z-index: 2147483647; font-family: system-ui, sans-serif; }
             #vh-fab { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #f43f5e, #ec4899); border: none; color: #fff; font-size: 26px; box-shadow: 0 4px 15px rgba(244,63,94,0.5); cursor: pointer; position: relative; }
             #vh-badge { position: absolute; top: -5px; right: -5px; background: #10b981; color: #fff; border-radius: 50%; min-width: 20px; height: 20px; font-size: 11px; font-weight: bold; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; display: none; }
-            #vh-panel { position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; color: #e2e8f0; max-height: 80vh; border-radius: 20px 20px 0 0; transform: translateY(100%); transition: transform 0.3s ease; display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); }
+            #vh-panel { position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; color: #e2e8f0; max-height: 85vh; border-radius: 20px 20px 0 0; transform: translateY(100%); transition: transform 0.3s ease; display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); }
             #vh-panel.open { transform: translateY(0); }
             .vh-header { padding: 16px 20px; background: linear-gradient(135deg, #f43f5e, #ec4899); border-radius: 20px 20px 0 0; display: flex; justify-content: space-between; align-items: center; }
-            .vh-title { margin: 0; font-size: 18px; font-weight: bold; }
+            .vh-title { margin: 0; font-size: 18px; font-weight: bold; color: white; }
             .vh-close { background: rgba(255,255,255,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; font-size: 20px; cursor: pointer; }
             .vh-content { flex: 1; overflow-y: auto; padding: 16px; }
+            .vh-content::-webkit-scrollbar { width: 4px; }
+            .vh-content::-webkit-scrollbar-thumb { background: #f43f5e; border-radius: 4px; }
             .vh-btn-scan { width: 100%; padding: 14px; background: #3b82f6; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; margin-bottom: 16px; cursor: pointer; }
             .vh-card { background: #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 12px; border: 1px solid #334155; }
             .vh-card video { width: 100%; border-radius: 8px; max-height: 180px; background: #000; margin-bottom: 10px; }
             .vh-card-url { font-size: 11px; color: #94a3b8; word-break: break-all; margin-bottom: 10px; background: #0f172a; padding: 8px; border-radius: 6px; border: 1px dashed #334155; }
+            .vh-badge-type { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: bold; margin-bottom: 8px; }
+            .badge-mp4 { background: #10b981; color: white; }
+            .badge-m3u8 { background: #6366f1; color: white; }
             .vh-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-            .vh-btn { padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
-            .vh-btn-dl { background: #10b981; color: #fff; }
-            .vh-btn-dl:active { background: #059669; }
-            .vh-btn-copy { background: #f59e0b; color: #fff; }
-            .vh-btn-copy:active { background: #d97706; }
+            .vh-btn { padding: 10px 5px; border: none; border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; color: white; transition: 0.2s; }
+            .vh-btn:active { transform: scale(0.95); }
+            .vh-btn-dl { background: #10b981; }
+            .vh-btn-open { background: #3b82f6; }
+            .vh-btn-copy { background: #f59e0b; }
             .vh-empty { text-align: center; color: #64748b; padding: 30px 0; }
         `;
         document.head.appendChild(css);
@@ -101,7 +188,7 @@
             <button id="vh-fab">🎬 <span id="vh-badge">0</span></button>
             <div id="vh-panel">
                 <div class="vh-header">
-                    <h3 class="vh-title">🔥 Video Hunter</h3>
+                    <h3 class="vh-title">🔥 Video Hunter (M3U8)</h3>
                     <button class="vh-close" id="vh-close">✕</button>
                 </div>
                 <div class="vh-content">
@@ -112,7 +199,6 @@
         `;
         document.body.appendChild(container);
 
-        // Gán sự kiện
         document.getElementById('vh-fab').addEventListener('click', togglePanel);
         document.getElementById('vh-close').addEventListener('click', togglePanel);
         document.getElementById('vh-scan').addEventListener('click', () => {
@@ -120,7 +206,6 @@
             renderList();
         });
 
-        // Sự kiện đóng/mở
         function togglePanel() {
             isPanelOpen = !isPanelOpen;
             document.getElementById('vh-panel').classList.toggle('open', isPanelOpen);
@@ -151,108 +236,88 @@
         }
 
         listDiv.innerHTML = '';
-        urls.forEach((url, index) => {
-            const isStream = url.includes('.m3u8') || url.includes('.mpd');
+        urls.forEach((url) => {
+            const isM3U8 = url.includes('.m3u8');
             const fileName = getFileName(url);
-            
+
             const card = document.createElement('div');
             card.className = 'vh-card';
             
-            // Chỉ tạo preview nếu là file mp4/webm trực tiếp, không preview m3u8 (sẽ bị lỗi)
-            let previewHtml = '';
-            if (!isStream) {
-                previewHtml = `<video src="${url}" controls muted preload="metadata"></video>`;
-            }
+            // Tạo preview
+            let previewHtml = `<div id="preview-${url.hashCode()}" style="margin-bottom:10px;"></div>`;
+            
+            // Badge thể loại
+            let badgeHtml = isM3U8 ? `<span class="vh-badge-type badge-m3u8">📡 STREAM (M3U8)</span>` : `<span class="vh-badge-type badge-mp4">📹 DIRECT (MP4/WEBM)</span>`;
+
+            // Tên nút tải
+            let downloadBtnText = isM3U8 ? "⬇️ Tải MP4" : "⬇️ Tải Xuống";
 
             card.innerHTML = `
                 ${previewHtml}
-                <div class="vh-card-url">🔗 ${isStream ? '[STREAM] ' : ''}${url.substring(0, 120)}...</div>
+                ${badgeHtml}
+                <div class="vh-card-url">🔗 ${url.substring(0, 120)}...</div>
                 <div class="vh-card-actions">
-                    <button class="vh-btn vh-btn-dl" data-url="${url}" data-name="${fileName}">⬇️ Tải Xuống</button>
+                    <button class="vh-btn vh-btn-dl" data-url="${url}" data-type="${isM3U8 ? 'm3u8' : 'direct'}" data-name="${fileName}">${downloadBtnText}</button>
+                    <button class="vh-btn vh-btn-open" data-url="${url}">🌐 Open Link</button>
                     <button class="vh-btn vh-btn-copy" data-url="${url}">📋 Copy Link</button>
                 </div>
             `;
             listDiv.appendChild(card);
-        });
 
-        // Gán sự kiện cho các nút trong card
-        listDiv.querySelectorAll('.vh-btn-dl').forEach(btn => {
-            btn.addEventListener('click', function() {
-                forceDownload(this.dataset.url, this.dataset.name);
+            // Khởi tạo Preview (Dùng HLS.js cho M3U8)
+            const previewContainer = card.querySelector(`#preview-${url.hashCode()}`);
+            const video = document.createElement('video');
+            video.controls = true;
+            video.style.cssText = 'width: 100%; border-radius: 8px; max-height: 180px; background: #000;';
+            previewContainer.appendChild(video);
+
+            if (isM3U8 && Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(url);
+                hls.attachMedia(video);
+            } else if (isM3U8 && video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url; // Safari hỗ trợ sẵn
+            } else {
+                video.src = url;
+            }
+
+            // Gán sự kiện nút bấm
+            card.querySelector('.vh-btn-dl').addEventListener('click', function() {
+                if (this.dataset.type === 'm3u8') {
+                    convertM3U8ToMP4(this.dataset.url, this);
+                } else {
+                    forceDownload(this.dataset.url, this.dataset.name, this);
+                }
             });
-        });
 
-        listDiv.querySelectorAll('.vh-btn-copy').forEach(btn => {
-            btn.addEventListener('click', function() {
+            card.querySelector('.vh-btn-open').addEventListener('click', function() {
+                window.open(this.dataset.url, '_blank');
+            });
+
+            card.querySelector('.vh-btn-copy').addEventListener('click', function() {
                 copyToClipboard(this.dataset.url);
             });
         });
     }
 
-    // 4. LOGIC TẢI XUỐNG (Kỹ thuật Fetch Blob ép tải xuống bypass Cross-Origin)
-    async function forceDownload(url, filename) {
-        // Thông báo đang tải
-        const btn = document.querySelector(`.vh-btn-dl[data-url="${url}"]`);
-        if (btn) { btn.innerText = "⏳ Đang xử lý..."; btn.style.opacity = "0.7"; }
-
-        try {
-            const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
-            if (!response.ok) throw new Error('Network error');
-            
-            const blob = await response.blob();
-            const blobUrl = window.URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(blobUrl);
-            
-            if (btn) { btn.innerText = "✅ Xong!"; btn.style.background = "#059669"; }
-        } catch (e) {
-            console.error("Lỗi Fetch Blob, fallback sang mở tab mới:", e);
-            // Nếu bị lỗi CORS (tình huống với Hentaiz), đành phải mở tab mới để user dùng IDM/Save as
-            window.open(url, '_blank');
-            alert("⚠️ Trình duyệt chặn tải trực tiếp do bảo mật.\nLink đã mở ở tab mới. Bạn hãy Chuột phải -> Save Video As hoặc dùng IDM để tải!");
-            if (btn) { btn.innerText = "⬇️ Thử lại"; btn.style.opacity = "1"; }
+    // Hàm băm String đơn giản để tạo ID
+    String.prototype.hashCode = function() {
+        let hash = 0;
+        for (let i = 0; i < this.length; i++) {
+            const char = this.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0;
         }
-    }
+        return Math.abs(hash);
+    };
 
-    function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => {
-            alert("✅ Đã sao chép link video!\nBạn có thể dán vào IDM, 1DM hoặc MX Player để tải/xem.");
-        }).catch(err => {
-            // Fallback copy
-            const textarea = document.createElement('textarea');
-            textarea.value = text;
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
-            alert("✅ Đã sao chép link video!");
-        });
-    }
-
-    function getFileName(url) {
-        try {
-            let path = new URL(url).pathname;
-            let name = path.split('/').pop();
-            return name.includes('.') ? name : 'video.mp4';
-        } catch(e) {
-            return 'video.mp4';
-        }
-    }
-
-    // 5. KHỞI TẠO
+    // 6. KHỞI TẠO
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', createUI);
     } else {
         createUI();
     }
 
-    // Lắng nghe sự kiện phát video để auto quét Network
     document.addEventListener('play', function(e) {
         if (e.target.tagName === 'VIDEO') {
             scanDOMVideos();
@@ -261,7 +326,6 @@
         }
     }, true);
 
-    // Quét DOM định kỳ để bắt video load động (AJAX)
     setInterval(() => {
         scanDOMVideos();
     }, 3000);
