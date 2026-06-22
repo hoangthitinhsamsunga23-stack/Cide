@@ -1,11 +1,10 @@
 // ==UserScript==
-// @name         🔥 Video Hunter Pro - M3U8 to MP4 Converter
+// @name         🌑 Video Hunter Pro - Monochrome UI
 // @namespace    http://tampermonkey.net/
-// @version      6.0
-// @description  Bắt video, tự động chuyển M3U8 sang MP4, tải mọi video từ mọi trang
+// @version      8.0
+// @description  Bắt & Tải video (M3U8->MP4), Giao diện Đen Trắng siêu sang, tối ưu mobile
 // @author       HunterPro
 // @match        *://*/*
-// @require      https://cdn.jsdelivr.net/npm/hls.js@latest
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
@@ -16,7 +15,7 @@
     let videoSources = new Set();
     let isPanelOpen = false;
 
-    // 1. INTERCEPT NETWORK (Bắt link từ lúc trang web vừa tải)
+    // 1. INTERCEPT NETWORK (Chạy từ document-start để không lỡ request)
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
         const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
@@ -38,7 +37,7 @@
         }
     }
 
-    // 2. SCAN DOM VIDEOS
+    // 2. SCAN DOM
     function scanDOMVideos() {
         document.querySelectorAll('video').forEach(v => {
             if (v.src && !v.src.startsWith('blob:')) videoSources.add(v.src);
@@ -47,10 +46,11 @@
         });
     }
 
-    // 3. M3U8 TO MP4 CONVERTER (Tải các đoạn .ts và ghép lại)
+    // 3. M3U8 TO MP4 CONVERTER
     async function convertM3U8ToMP4(m3u8Url, btnElement) {
-        btnElement.innerText = "⏳ Đang đọc M3U8...";
-        btnElement.style.background = "#6366f1";
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "⏳ Đọc M3U8...";
+        btnElement.style.opacity = "0.6";
 
         try {
             const response = await fetch(m3u8Url);
@@ -66,19 +66,17 @@
                 }
             }
 
-            if (tsUrls.length === 0) {
-                throw new Error("Không tìm thấy file .ts trong playlist!");
-            }
+            if (tsUrls.length === 0) throw new Error("Không tìm thấy file .ts!");
 
             const blobs = [];
             for (let i = 0; i < tsUrls.length; i++) {
-                btnElement.innerText = `⏳ Tải đoạn ${i + 1}/${tsUrls.length}`;
+                btnElement.innerText = `⏳ ${i+1}/${tsUrls.length}`;
                 const tsResp = await fetch(tsUrls[i]);
                 const blob = await tsResp.blob();
                 blobs.push(blob);
             }
 
-            btnElement.innerText = "📦 Đang ghép video...";
+            btnElement.innerText = "📦 Ghép file...";
             const finalBlob = new Blob(blobs, { type: 'video/mp4' });
             const blobUrl = URL.createObjectURL(finalBlob);
 
@@ -90,21 +88,29 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(blobUrl);
 
-            btnElement.innerText = "✅ Tải Xong!";
-            btnElement.style.background = "#10b981";
-
+            btnElement.innerText = "✅ Xong!";
+            btnElement.style.background = "#ffffff";
+            btnElement.style.color = "#000000";
         } catch (e) {
-            console.error("Lỗi chuyển đổi M3U8:", e);
+            console.error("Lỗi M3U8:", e);
             btnElement.innerText = "❌ Lỗi CORS";
-            btnElement.style.background = "#ef4444";
-            alert("⚠️ Trình duyệt chặn tải do CORS.\nHãy bấm 'Open Link' hoặc 'Copy Link' rồi dán vào IDM / 1DM / XDM để tải!");
+            btnElement.style.background = "#ff4d4d";
+            btnElement.style.color = "#ffffff";
+            showToast("Trình duyệt chặn tải M3U8. Hãy Copy Link rồi dán vào IDM/1DM!");
         }
+        setTimeout(() => { 
+            btnElement.innerText = originalText; 
+            btnElement.style.opacity = "1"; 
+            btnElement.style.background = ""; 
+            btnElement.style.color = ""; 
+        }, 3000);
     }
 
-    // 4. FORCE DOWNLOAD MP4 DIRECT
+    // 4. FORCE DOWNLOAD DIRECT MP4
     async function forceDownload(url, filename, btnElement) {
-        btnElement.innerText = "⏳ Đang xử lý...";
-        btnElement.style.opacity = "0.7";
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "⏳ Tải...";
+        btnElement.style.opacity = "0.6";
         try {
             const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
             if (!response.ok) throw new Error('Network error');
@@ -118,25 +124,31 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(blobUrl);
             btnElement.innerText = "✅ Xong!";
-            btnElement.style.background = "#059669";
+            btnElement.style.background = "#ffffff";
+            btnElement.style.color = "#000000";
         } catch (e) {
-            btnElement.innerText = "⚠️ Bấm Open Link";
-            btnElement.style.background = "#ef4444";
-            alert("Trình duyệt chặn tải trực tiếp. Hãy bấm 'Open Link' để mở video, sau đó Chuột phải -> Save Video As!");
+            btnElement.innerText = "⚠️ Dùng Open";
+            btnElement.style.background = "#ff4d4d";
+            btnElement.style.color = "#ffffff";
+            showToast("Bị chặn tải. Bấm 'Open' rồi Chuột phải -> Save Video As!");
         }
+        setTimeout(() => { 
+            btnElement.innerText = originalText; 
+            btnElement.style.opacity = "1"; 
+            btnElement.style.background = ""; 
+            btnElement.style.color = ""; 
+        }, 3000);
     }
 
     function copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => {
-            alert("✅ Đã sao chép link video!\nDán vào IDM, 1DM hoặc MX Player để tải/xem.");
-        }).catch(() => {
+        navigator.clipboard.writeText(text).then(() => showToast("✅ Đã copy link!")).catch(() => {
             const textarea = document.createElement('textarea');
             textarea.value = text;
             document.body.appendChild(textarea);
             textarea.select();
             document.execCommand('copy');
             document.body.removeChild(textarea);
-            alert("✅ Đã sao chép link video!");
+            showToast("✅ Đã copy link!");
         });
     }
 
@@ -148,37 +160,131 @@
         } catch(e) { return 'video.mp4'; }
     }
 
-    // 5. GIAO DIỆN (MOBILE UI)
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.innerText = message;
+        toast.style.cssText = `position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.95); color: #000; padding: 12px 24px; border-radius: 30px; z-index: 2147483647; font-size: 14px; font-weight: 600; box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: opacity 0.5s;`;
+        document.body.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 2000);
+    }
+
+    // 5. GIAO DIỆN MONOCHROME UI
     function createUI() {
         if (document.getElementById('vh-container')) return;
 
         const css = document.createElement('style');
         css.textContent = `
-            #vh-container { position: fixed; bottom: 20px; right: 16px; z-index: 2147483647; font-family: system-ui, sans-serif; }
-            #vh-fab { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #f43f5e, #ec4899); border: none; color: #fff; font-size: 26px; box-shadow: 0 4px 15px rgba(244,63,94,0.5); cursor: pointer; position: relative; }
-            #vh-badge { position: absolute; top: -5px; right: -5px; background: #10b981; color: #fff; border-radius: 50%; min-width: 20px; height: 20px; font-size: 11px; font-weight: bold; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; display: none; }
-            #vh-panel { position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; color: #e2e8f0; max-height: 85vh; border-radius: 20px 20px 0 0; transform: translateY(100%); transition: transform 0.3s ease; display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); }
+            #vh-container { position: fixed; bottom: 20px; right: 16px; z-index: 2147483647; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+            
+            /* FLOATING ACTION BUTTON */
+            #vh-fab { 
+                width: 52px; height: 52px; border-radius: 50%; 
+                background: #000000; border: 2px solid rgba(255,255,255,0.8); 
+                color: #fff; font-size: 22px; cursor: pointer; position: relative; 
+                display: flex; justify-content: center; align-items: center;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 0 0 rgba(255,255,255,0.2);
+                transition: all 0.3s ease; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            }
+            #vh-fab:active { transform: scale(0.9); }
+            #vh-badge { 
+                position: absolute; top: -6px; right: -6px; background: #ffffff; color: #000000; 
+                border-radius: 50%; min-width: 20px; height: 20px; font-size: 11px; font-weight: 800; 
+                display: none; align-items: center; justify-content: center; border: 2px solid #000; 
+            }
+
+            /* PANEL */
+            #vh-panel { 
+                position: fixed; bottom: 0; left: 0; right: 0; 
+                background: rgba(0, 0, 0, 0.95); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+                color: #ffffff; max-height: 85vh; border-radius: 24px 24px 0 0; 
+                transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+                display: flex; flex-direction: column; 
+                border-top: 1px solid rgba(255,255,255,0.1);
+                box-shadow: 0 -10px 60px rgba(0,0,0,0.8);
+            }
             #vh-panel.open { transform: translateY(0); }
-            .vh-header { padding: 16px 20px; background: linear-gradient(135deg, #f43f5e, #ec4899); border-radius: 20px 20px 0 0; display: flex; justify-content: space-between; align-items: center; }
-            .vh-title { margin: 0; font-size: 18px; font-weight: bold; color: white; }
-            .vh-close { background: rgba(255,255,255,0.2); border: none; color: #fff; width: 32px; height: 32px; border-radius: 50%; font-size: 20px; cursor: pointer; }
-            .vh-content { flex: 1; overflow-y: auto; padding: 16px; }
+
+            /* HEADER */
+            .vh-header { 
+                padding: 20px 24px 16px; display: flex; justify-content: space-between; align-items: center; 
+                border-bottom: 1px solid rgba(255,255,255,0.08);
+            }
+            .vh-title { margin: 0; font-size: 18px; font-weight: 700; color: white; letter-spacing: -0.5px; }
+            .vh-close { 
+                background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);
+                color: #fff; width: 30px; height: 30px; border-radius: 50%; font-size: 18px; cursor: pointer; 
+                display: flex; align-items: center; justify-content: center; transition: 0.2s;
+            }
+            .vh-close:active { background: rgba(255,255,255,0.2); }
+
+            /* TOOLBAR */
+            .vh-toolbar { display: flex; gap: 8px; padding: 16px 20px; }
+            .vh-search { 
+                flex: 1; padding: 12px 16px; border-radius: 12px; 
+                border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); 
+                color: white; outline: none; font-size: 14px; transition: 0.2s;
+            }
+            .vh-search::placeholder { color: rgba(255,255,255,0.3); }
+            .vh-search:focus { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.08); }
+            .vh-tool-btn { 
+                padding: 0 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15); 
+                background: rgba(255,255,255,0.05); color: white; cursor: pointer; font-size: 16px; 
+                display: flex; align-items: center; justify-content: center; transition: 0.2s;
+            }
+            .vh-tool-btn:active { background: rgba(255,255,255,0.15); }
+
+            /* CONTENT LIST */
+            .vh-content { flex: 1; overflow-y: auto; padding: 12px 20px 30px; }
             .vh-content::-webkit-scrollbar { width: 4px; }
-            .vh-content::-webkit-scrollbar-thumb { background: #f43f5e; border-radius: 4px; }
-            .vh-btn-scan { width: 100%; padding: 14px; background: #3b82f6; color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; margin-bottom: 16px; cursor: pointer; }
-            .vh-card { background: #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 12px; border: 1px solid #334155; }
-            .vh-card video { width: 100%; border-radius: 8px; max-height: 180px; background: #000; margin-bottom: 10px; }
-            .vh-card-url { font-size: 11px; color: #94a3b8; word-break: break-all; margin-bottom: 10px; background: #0f172a; padding: 8px; border-radius: 6px; border: 1px dashed #334155; }
-            .vh-badge-type { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: bold; margin-bottom: 8px; }
-            .badge-mp4 { background: #10b981; color: white; }
-            .badge-m3u8 { background: #6366f1; color: white; }
-            .vh-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-            .vh-btn { padding: 10px 5px; border: none; border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; color: white; transition: 0.2s; }
+            .vh-content::-webkit-scrollbar-track { background: transparent; }
+            .vh-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+            /* CARD */
+            .vh-card { 
+                background: rgba(255,255,255,0.04); border-radius: 16px; padding: 16px; margin-bottom: 12px; 
+                border: 1px solid rgba(255,255,255,0.06); transition: 0.2s;
+            }
+            .vh-card.is-main { 
+                border: 1px solid rgba(255,255,255,0.3); 
+                background: rgba(255,255,255,0.08);
+                box-shadow: 0 0 20px rgba(255,255,255,0.05);
+            }
+            .vh-card-badges { margin-bottom: 10px; display: flex; gap: 8px; align-items: center; }
+            .vh-badge-type { 
+                padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; 
+                text-transform: uppercase; letter-spacing: 0.5px;
+            }
+            .badge-mp4 { background: rgba(255,255,255,0.15); color: #ffffff; }
+            .badge-m3u8 { background: rgba(255,255,255,0.08); color: #aaaaaa; border: 1px solid rgba(255,255,255,0.1); }
+            .vh-star { color: #ffffff; font-size: 14px; text-shadow: 0 0 5px rgba(255,255,255,0.5); }
+            
+            .vh-card-url { 
+                font-size: 11px; color: rgba(255,255,255,0.4); word-break: break-all; margin-bottom: 12px; 
+                display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; 
+                font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; line-height: 1.4;
+            }
+
+            /* BUTTONS */
+            .vh-card-actions { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 8px; }
+            .vh-btn { 
+                padding: 10px; border: none; border-radius: 10px; font-size: 12px; font-weight: 700; 
+                cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; 
+                transition: all 0.2s; letter-spacing: 0.3px;
+            }
             .vh-btn:active { transform: scale(0.95); }
-            .vh-btn-dl { background: #10b981; }
-            .vh-btn-open { background: #3b82f6; }
-            .vh-btn-copy { background: #f59e0b; }
-            .vh-empty { text-align: center; color: #64748b; padding: 30px 0; }
+            
+            /* Nút Tải xuống - Primary Action (Inverted Color) */
+            .vh-btn-dl { background: #ffffff; color: #000000; }
+            .vh-btn-dl:active { background: #cccccc; }
+            
+            /* Nút Open & Copy - Secondary Action */
+            .vh-btn-open { background: rgba(255,255,255,0.08); color: #ffffff; border: 1px solid rgba(255,255,255,0.1); }
+            .vh-btn-open:active { background: rgba(255,255,255,0.15); }
+            
+            .vh-btn-copy { background: transparent; color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.05); }
+            .vh-btn-copy:active { color: #ffffff; border-color: rgba(255,255,255,0.2); }
+
+            .vh-empty { text-align: center; color: rgba(255,255,255,0.3); padding: 50px 0; font-size: 14px; line-height: 1.6; }
         `;
         document.head.appendChild(css);
 
@@ -188,22 +294,50 @@
             <button id="vh-fab">🎬 <span id="vh-badge">0</span></button>
             <div id="vh-panel">
                 <div class="vh-header">
-                    <h3 class="vh-title">🔥 Video Hunter (M3U8)</h3>
+                    <h3 class="vh-title">VIDEO HUNTER</h3>
                     <button class="vh-close" id="vh-close">✕</button>
                 </div>
-                <div class="vh-content">
-                    <button class="vh-btn-scan" id="vh-scan">🔍 Quét Lại Video</button>
-                    <div id="vh-list"></div>
+                <div class="vh-toolbar">
+                    <input type="text" class="vh-search" id="vh-search" placeholder="Lọc video (1080p, .mp4...)">
+                    <button class="vh-tool-btn" id="vh-copyall" title="Copy tất cả link">📋</button>
+                    <button class="vh-tool-btn" id="vh-clear" title="Xoá danh sách">🗑️</button>
                 </div>
+                <div class="vh-content" id="vh-list"></div>
             </div>
         `;
         document.body.appendChild(container);
 
+        // Event Listeners
         document.getElementById('vh-fab').addEventListener('click', togglePanel);
         document.getElementById('vh-close').addEventListener('click', togglePanel);
-        document.getElementById('vh-scan').addEventListener('click', () => {
-            scanDOMVideos();
+        document.getElementById('vh-clear').addEventListener('click', () => {
+            videoSources.clear();
+            updateBadge();
             renderList();
+            showToast("🗑️ Đã xoá danh sách!");
+        });
+        document.getElementById('vh-copyall').addEventListener('click', () => {
+            if(videoSources.size === 0) return showToast("Không có link để copy");
+            copyToClipboard(Array.from(videoSources).join('\n'));
+        });
+        document.getElementById('vh-search').addEventListener('input', renderList);
+
+        // Event Delegation cho các nút bấm
+        document.getElementById('vh-list').addEventListener('click', function(e) {
+            const btn = e.target.closest('.vh-btn');
+            if (!btn) return;
+            const url = btn.dataset.url;
+            const type = btn.dataset.type;
+            const name = btn.dataset.name;
+
+            if (btn.classList.contains('vh-btn-dl')) {
+                if (type === 'm3u8') convertM3U8ToMP4(url, btn);
+                else forceDownload(url, name, btn);
+            } else if (btn.classList.contains('vh-btn-open')) {
+                window.open(url, '_blank');
+            } else if (btn.classList.contains('vh-btn-copy')) {
+                copyToClipboard(url);
+            }
         });
 
         function togglePanel() {
@@ -225,13 +359,16 @@
         }
     }
 
+    // 6. RENDER LIST (Pure Text, No Video Element)
     function renderList() {
         const listDiv = document.getElementById('vh-list');
         if (!listDiv) return;
 
-        const urls = Array.from(videoSources);
+        const query = document.getElementById('vh-search')?.value.toLowerCase() || '';
+        const urls = Array.from(videoSources).filter(u => u.toLowerCase().includes(query));
+
         if (urls.length === 0) {
-            listDiv.innerHTML = '<div class="vh-empty">❌ Không tìm thấy video.<br>Hãy chơi video trước rồi bấm Quét Lại!</div>';
+            listDiv.innerHTML = `<div class="vh-empty">❌ Không tìm thấy video.<br>${videoSources.size > 0 ? 'Thay đổi từ khóa tìm kiếm.' : 'Phát video trên trang rồi quét lại.'}</div>`;
             return;
         }
 
@@ -239,79 +376,35 @@
         urls.forEach((url) => {
             const isM3U8 = url.includes('.m3u8');
             const fileName = getFileName(url);
+            const isMainVideo = /videoplayback|720p|1080p|480p|master/i.test(url) && !isM3U8;
 
             const card = document.createElement('div');
-            card.className = 'vh-card';
-            
-            // Tạo preview
-            let previewHtml = `<div id="preview-${url.hashCode()}" style="margin-bottom:10px;"></div>`;
-            
-            // Badge thể loại
-            let badgeHtml = isM3U8 ? `<span class="vh-badge-type badge-m3u8">📡 STREAM (M3U8)</span>` : `<span class="vh-badge-type badge-mp4">📹 DIRECT (MP4/WEBM)</span>`;
+            card.className = `vh-card ${isMainVideo ? 'is-main' : ''}`;
 
-            // Tên nút tải
-            let downloadBtnText = isM3U8 ? "⬇️ Tải MP4" : "⬇️ Tải Xuống";
+            let badgeHtml = isM3U8 
+                ? `<span class="vh-badge-type badge-m3u8">📡 Stream</span>` 
+                : `<span class="vh-badge-type badge-mp4">📹 Direct</span>`;
+
+            if(isMainVideo) badgeHtml += `<span class="vh-star">⭐</span>`;
+
+            let downloadBtnText = isM3U8 ? "⬇️ MP4" : "⬇️ Tải";
 
             card.innerHTML = `
-                ${previewHtml}
-                ${badgeHtml}
-                <div class="vh-card-url">🔗 ${url.substring(0, 120)}...</div>
+                <div class="vh-card-badges">
+                    ${badgeHtml}
+                </div>
+                <div class="vh-card-url">${url}</div>
                 <div class="vh-card-actions">
                     <button class="vh-btn vh-btn-dl" data-url="${url}" data-type="${isM3U8 ? 'm3u8' : 'direct'}" data-name="${fileName}">${downloadBtnText}</button>
-                    <button class="vh-btn vh-btn-open" data-url="${url}">🌐 Open Link</button>
-                    <button class="vh-btn vh-btn-copy" data-url="${url}">📋 Copy Link</button>
+                    <button class="vh-btn vh-btn-open" data-url="${url}">🌐 Open</button>
+                    <button class="vh-btn vh-btn-copy" data-url="${url}">📋 Copy</button>
                 </div>
             `;
             listDiv.appendChild(card);
-
-            // Khởi tạo Preview (Dùng HLS.js cho M3U8)
-            const previewContainer = card.querySelector(`#preview-${url.hashCode()}`);
-            const video = document.createElement('video');
-            video.controls = true;
-            video.style.cssText = 'width: 100%; border-radius: 8px; max-height: 180px; background: #000;';
-            previewContainer.appendChild(video);
-
-            if (isM3U8 && Hls.isSupported()) {
-                const hls = new Hls();
-                hls.loadSource(url);
-                hls.attachMedia(video);
-            } else if (isM3U8 && video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = url; // Safari hỗ trợ sẵn
-            } else {
-                video.src = url;
-            }
-
-            // Gán sự kiện nút bấm
-            card.querySelector('.vh-btn-dl').addEventListener('click', function() {
-                if (this.dataset.type === 'm3u8') {
-                    convertM3U8ToMP4(this.dataset.url, this);
-                } else {
-                    forceDownload(this.dataset.url, this.dataset.name, this);
-                }
-            });
-
-            card.querySelector('.vh-btn-open').addEventListener('click', function() {
-                window.open(this.dataset.url, '_blank');
-            });
-
-            card.querySelector('.vh-btn-copy').addEventListener('click', function() {
-                copyToClipboard(this.dataset.url);
-            });
         });
     }
 
-    // Hàm băm String đơn giản để tạo ID
-    String.prototype.hashCode = function() {
-        let hash = 0;
-        for (let i = 0; i < this.length; i++) {
-            const char = this.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash |= 0;
-        }
-        return Math.abs(hash);
-    };
-
-    // 6. KHỞI TẠO
+    // 7. KHỞI TẠO
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', createUI);
     } else {
@@ -326,8 +419,6 @@
         }
     }, true);
 
-    setInterval(() => {
-        scanDOMVideos();
-    }, 3000);
+    setInterval(scanDOMVideos, 3000);
 
 })();
